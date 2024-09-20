@@ -67,16 +67,25 @@ def upload_pdf():
         pdf_reader = PdfFileReader(file)
         pdf_text = ""
 
-        for page in pdf_reader.pages:
-            pdf_text += page.extract_text()
+        for page_num in range(pdf_reader.numPages):
+            page = pdf_reader.getPage(page_num)
+
+            # Check if the page has the correct method (depending on PyPDF2 version)
+            if hasattr(page, 'extract_text'):
+                pdf_text += page.extract_text()  # Newer PyPDF2 versions
+            else:
+                pdf_text += page.extractText()  # Older PyPDF2 versions
 
         # Store the PDF text in the database
         pdf_content = PDFContent(text=pdf_text)
         db.session.add(pdf_content)
         db.session.commit()
 
+        # Return success message after processing
         return jsonify({'message': 'PDF content indexed successfully'}), 200
+
     except Exception as e:
+        # Return error message in case of exception
         return jsonify({'error': str(e)}), 500
 
 # Endpoint for querying the indexed PDFs
