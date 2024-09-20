@@ -2,7 +2,7 @@ import os
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from flask_restful import Api, Resource
+from flask_restful import Api
 from flask_cors import CORS
 import openai
 from PyPDF2 import PdfFileReader
@@ -28,7 +28,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
-
 # Set your OpenAI API key securely from the environment
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
@@ -40,10 +39,8 @@ class PDFContent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     text = db.Column(db.Text, nullable=False)
 
-    def __init__(self, text):  # Corrected method name to __init__
+    def __init__(self, text):
         self.text = text
-
-
 
 def create_tables():
     db.create_all()
@@ -91,32 +88,42 @@ def upload_pdf():
 # Endpoint for querying the indexed PDFs
 @app.route('/query_pdf', methods=['POST'])
 def query_pdf():
-    query = request.json.get('query')
-
-    if not query:
-        return jsonify({'error': 'No query provided'}), 400
-
-    # Get all the stored PDF text from the database
-    pdf_texts = [pdf.text for pdf in PDFContent.query.all()]
-
-    if not pdf_texts:
-        return jsonify({'error': 'No PDF content found in the database'}), 404
-
-    combined_pdf_text = "\n".join(pdf_texts)
-
-    # Combine the PDF text and the query in a prompt for OpenAI
-    prompt = f"The following is extracted text from a PDF:\n{combined_pdf_text}\n\nAnswer the following query: {query}"
-
     try:
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=prompt,
+        # Get the query from the request body
+        query = request.json.get('query')
+
+        if not query:
+            return jsonify({'error': 'No query provided'}), 400
+
+        # Get all the stored PDF text from the database
+        pdf_texts = [pdf.text for pdf in PDFContent.query.all()]
+
+        if not pdf_texts:
+            return jsonify({'error': 'No PDF content found in the database'}), 404
+
+        combined_pdf_text = "\n".join(pdf_texts)
+
+        # Combine the PDF text and the query in a prompt for OpenAI
+        prompt = f"The following is extracted text from a PDF:\n{combined_pdf_text}\n\nAnswer the following query: {query}"
+
+        # Use the OpenAI ChatCompletion API
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",  # or "gpt-4" if available
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ],
             max_tokens=1000
         )
-        return jsonify({'response': response.choices[0].text.strip()}), 200
+
+        # Extract the generated response from the API
+        reply = response['choices'][0]['message']['content'].strip()
+
+        return jsonify({'response': reply}), 200
+
     except Exception as e:
+        # Log and return the error message in case of an exception
         return jsonify({'error': str(e)}), 500
 
-# Run the Flask app
 if __name__ == '__main__':
     app.run(debug=True)
